@@ -1,4 +1,7 @@
 
+using Microsoft.EntityFrameworkCore;
+using SmartBookStroreSystem.DTOs;
+
 namespace SmartBookStroreSystem
 {
     public class Program
@@ -8,6 +11,10 @@ namespace SmartBookStroreSystem
             var builder = WebApplication.CreateBuilder(args);
 
             // Add services to the container.
+
+            // Configure Entity Framework and SQL Server
+            builder.Services.AddDbContext<SmartBookContext>(options =>
+                options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
             builder.Services.AddControllers();
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
