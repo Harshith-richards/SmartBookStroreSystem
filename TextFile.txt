@@ -1,0 +1,154 @@
+﻿ Project — Smart Book Store System (Full Backend)
+
+📦 Phase 1 — Project Setup & Structure
+What to do:
+
+Create a fresh ASP.NET Core Web API project
+Create these folders inside the project — Controllers, Models, DTOs, Services, Repositories, Interfaces, Middleware, Helpers
+Create separate model files for — User, Book, Order, OrderItem, Payment
+Plan your DB relationships on paper before writing any code:
+
+One User → Many Orders
+One Order → Many OrderItems
+One OrderItem → One Book
+One Order → One Payment
+
+
+Set up AppDbContext with all 5 models as DbSet<T>
+Add your connection string to appsettings.json
+Run Add-Migration InitialCreate and Update-Database — verify all tables appear in SSMS
+
+
+🔐 Phase 2 — Auth System (Register / Login / Roles)
+What to do:
+
+Install ASP.NET Core Identity and wire it up to your existing AppDbContext
+Create two roles on app startup — "Admin" and "User" — use RoleManager to seed them if they don't exist
+Build POST /api/auth/register — accept Username, Email, Password, Role — assign the role during registration using UserManager
+Build POST /api/auth/login — validate credentials, generate and return a JWT token
+The JWT token payload (claims) must include — UserId, Email, Role
+Install and configure JWT in appsettings.json with SecretKey, Issuer, Audience, ExpiryInMinutes
+Protect all non-auth routes with [Authorize]
+
+Extra challenges:
+
+Add a POST /api/auth/refresh-token endpoint — when the access token expires, the user sends a refresh token and gets a new access token without logging in again
+Store refresh tokens in the DB with expiry — not just in memory
+
+
+📚 Phase 3 — Book Management (Admin Only)
+What to do:
+
+Create IBookRepository interface with — GetAll, GetById, Add, Update, Delete, Search
+Create BookRepository implementing that interface — register it as AddScoped in Program.cs
+Build these endpoints:
+
+GET /api/books — public, no auth needed, returns all books
+GET /api/books/{id:int} — public
+GET /api/books/search?title=&author=&genre= — public, filter using query strings
+POST /api/books — Admin only — add a book
+PUT /api/books/{id} — Admin only — update a book
+DELETE /api/books/{id} — Admin only — delete a book
+
+
+Create a BookDTO for responses — never return the raw Book model — use AutoMapper
+Add model validations on the Book model — Title required, Price must be greater than 0, Stock cannot be negative
+
+Extra challenges:
+
+Add pagination to GET /api/books — accept ?page=1&pageSize=10 as query params — return total count alongside the data so the frontend knows how many pages exist
+Add an IN_STOCK filter — GET /api/books?inStock=true returns only books with Stock > 0
+
+
+🖼️ Phase 4 — File Upload (Book Cover Image)
+What to do:
+
+Add an ImagePath field to the Book model — this stores the file path, not the actual image
+Build POST /api/books/{id}/upload-image — Admin only — accepts a file upload using [FromForm] and IFormFile
+Validate the uploaded file — only allow .jpg, .jpeg, .png extensions — reject anything else with 400 Bad Request
+Validate file size — reject files larger than 2MB
+Save the file to a folder called wwwroot/images/books/ inside your project — generate a unique filename using Guid.NewGuid() so files never overwrite each other
+Update the book's ImagePath in the DB after saving the file
+Build GET /api/books/{id}/image — returns the image file from disk using PhysicalFile()
+Enable static files middleware in Program.cs so the wwwroot folder is served
+
+Extra challenges:
+
+If a book already has an image and Admin uploads a new one — delete the old file from disk before saving the new one
+Return the full image URL in the Book response DTO — not just the path — so a frontend can directly use it
+
+
+🛒 Phase 5 — Order System (User Only)
+What to do:
+
+Build POST /api/orders — User only — accept a list of { BookId, Quantity } in the request body
+In the service layer, before creating the order:
+
+Check each book exists — return 404 if not
+Check each book has enough stock — return 400 Bad Request with a clear message if stock is insufficient
+Calculate the total price — sum of (Book.Price × Quantity) for each item
+
+
+Create the Order record with status "Pending" and create all OrderItem records linked to it
+Reduce the stock of each book by the ordered quantity after order is placed
+Return the created order with all its items and total price in the response
+Build GET /api/orders/mine — User only — returns only the logged-in user's orders — get the UserId from the JWT claims, not from a query param
+Build GET /api/orders — Admin only — returns all orders from all users
+Build GET /api/orders/{id} — User can see their own order only, Admin can see any order — return 403 Forbidden if a User tries to access another user's order
+
+Extra challenges:
+
+Build PUT /api/orders/{id}/cancel — User can cancel an order only if its status is still "Pending" — restore the stock when cancelled
+Add an order status flow — Pending → Confirmed → Shipped → Delivered — only Admin can move the status forward using PUT /api/orders/{id}/status
+
+
+💳 Phase 6 — Payment Simulation
+What to do:
+
+Build POST /api/payments — User only — accept { OrderId, PaymentMethod } where PaymentMethod can be "Card", "UPI", or "COD"
+Validate that the Order belongs to the logged-in user before processing — return 403 if not
+Validate that the Order status is "Pending" — return 400 if already paid or cancelled
+Simulate payment processing — generate a TransactionId using Guid.NewGuid(), set PaymentStatus to "Success", record PaidAt timestamp
+After successful payment — update the Order status from "Pending" to "Confirmed" in the same operation
+Build GET /api/payments/{orderId} — return payment details for a given order — User can only see their own, Admin can see all
+
+Extra challenges:
+
+Simulate a 10% random failure rate — use Random to occasionally return a PaymentStatus of "Failed" with a 400 response — this simulates real payment gateway failures
+Wrap the payment creation and order status update in a DB transaction — if either step fails, both should roll back — use BeginTransactionAsync() in EF Core
+
+
+📧 Phase 7 — Email Notification After Order
+What to do:
+
+Install MailKit NuGet package — this is the standard email library for .NET
+Create an IEmailService interface with a SendEmailAsync(to, subject, body) method
+Create EmailService implementing it — configure SMTP settings (host, port, username, password) in appsettings.json — use Mailtrap.io for testing (it is a free fake inbox that catches emails without sending to real people)
+Register EmailService as AddScoped in Program.cs
+After a successful order (POST /api/orders) — inject IEmailService into your Order service and send a confirmation email to the user with — Order ID, list of books ordered, total price
+After a successful payment (POST /api/payments) — send a payment confirmation email with — Transaction ID, amount paid, payment method
+
+Extra challenges:
+
+Make the email body HTML — not plain text — include a simple table of ordered items with quantities and prices
+Send the email in the background using Task.Run() so the API response is not delayed waiting for the email to send
+
+
+🛡️ Phase 8 — Polish & Production Readiness
+What to do:
+
+Add Global Exception Handling middleware — all unhandled exceptions return a clean { "error": "...", "traceId": "..." } JSON response — no raw stack traces ever reach the client
+Add request logging middleware — log every incoming request: method, path, status code, and how long it took in milliseconds
+Add input validation on all POST/PUT endpoints using Data Annotations — return 400 with field-level error messages, not a generic error
+Add API versioning — prefix all your routes with /api/v1/ so you can release a v2 later without breaking v1
+Document everything in Swagger — add XML comments to each endpoint describing what it does, what it accepts, and what it returns
+Add a GET /api/health endpoint that returns { "status": "healthy", "timestamp": "..." }
+Push the entire project to GitHub with a proper README.md that includes — what the project does, how to run it locally, all endpoints listed, and a screenshot of Swagger
+
+
+💡 Tips
+
+Build one Phase at a time — test every endpoint in Postman before moving to the next Phase
+Never skip the paper design step in Phase 1 — drawing the relationships before coding saves hours of confusion
+Phase 6 (Payment) and Phase 7 (Email) are the two things that make this project look genuinely non-trivial on a resume
+When the full project is done, the one-line resume description is: "Built a full-featured Book Store REST API with JWT auth, role-based access, order management, payment simulation, email notifications, and file upload using ASP.NET Core, EF Core, and SQL Server"
